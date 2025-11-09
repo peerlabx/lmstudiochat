@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -eu
+
+# Font Formatting codes
+GREEN='\033[32m'
+BLUE='\033[36m'
+MAGENTA='\033[35m'
+RED='\033[31m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+MAKEFILE_LIST=${@}
+
+awk 'BEGIN {FS = "^##[^@]"; printf "\nDescription:\n"} /^##[^@]/ { printf "  %s\n", $2 } ' ${MAKEFILE_LIST}
+awk 'BEGIN {printf "\nUsage:\n  ['${GREEN}'<variable>'${NC}'='${MAGENTA}'<value>'${NC}' ...] make '${BLUE}'<target>'${NC}'\n"}'
+awk 'BEGIN {FS = "\\?=.*##"; printf "\nVariables:\n"} /^[a-zA-Z_0-9-]+ \?\=.*##/ { printf "  '${GREEN}'%-15s'${NC}' %s\n", $1, $2 } ' ${MAKEFILE_LIST}
+awk 'BEGIN {FS = ":.*##";  printf "\nTargets:\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  '${BLUE}'%-15s'${NC}' %s\n", $1, $2 } /^##@/ { printf "\n'${BOLD}'%s'${NC}'\n", substr($0, 5) } ' ${MAKEFILE_LIST}
+awk 'BEGIN {FS = ":.*##"; } /^##!/ { printf "\n'${RED}'%s'${NC}'\n", substr($0, 5) } ' ${MAKEFILE_LIST}
