@@ -110,6 +110,10 @@ export default function ChatScreen() {
 
       console.log('Request body:', JSON.stringify(requestBody, null, 2));
       
+      // Add timeout to fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       const response = await fetch(chatEndpoint, {
         method: 'POST',
         headers: {
@@ -117,14 +121,15 @@ export default function ChatScreen() {
           'Accept': 'application/json',
         },
         body: JSON.stringify(requestBody),
-      });
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId));
 
       console.log('Response status:', response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error('API Error Response:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
@@ -142,29 +147,45 @@ export default function ChatScreen() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending message:', error);
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      
+      let errorMessage = 'Failed to connect to LM Studio.\n\n';
+      
+      if (error.name === 'AbortError') {
+        errorMessage += 'Request timed out after 30 seconds.\n\n';
+      } else if (error.message.includes('Network request failed')) {
+        errorMessage += 'Network request failed. This usually means:\n\n';
+        errorMessage += '• The API URL is incorrect\n';
+        errorMessage += '• LM Studio is not running\n';
+        errorMessage += '• The model is not loaded\n';
+        errorMessage += '• The API server is not started\n';
+        errorMessage += '• Your device cannot reach the server\n\n';
+        
+        if (apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1')) {
+          errorMessage += '⚠️ You are using localhost. On a physical device, you need to use your computer\'s IP address instead.\n\n';
+          errorMessage += 'Example: http://192.168.1.100:1234\n\n';
+        }
+      } else {
+        errorMessage += `Error: ${error.message}\n\n`;
+      }
+      
+      errorMessage += `Current API URL: ${apiUrl}\n`;
+      errorMessage += `Current Model: ${selectedModel}`;
       
       Alert.alert(
         'Connection Error',
-        `Failed to connect to LM Studio.\n\nMake sure:\n1. LM Studio is running\n2. A model is loaded (${selectedModel})\n3. The API server is started\n4. Your device is on the same network\n\nCurrent API URL: ${apiUrl}`,
+        errorMessage,
         [
           {
-            text: 'Change URL',
-            onPress: () => {
-              Alert.prompt(
-                'API URL',
-                'Enter the LM Studio API URL:',
-                (text) => {
-                  if (text) {
-                    setApiUrl(text.trim());
-                    AsyncStorage.setItem(API_URL_STORAGE_KEY, text.trim());
-                  }
-                },
-                'plain-text',
-                apiUrl
-              );
-            },
+            text: 'Settings',
+            onPress: () => router.push('/profile'),
+          },
+          {
+            text: 'Select Model',
+            onPress: () => router.push('/model-selection'),
           },
           { text: 'OK' },
         ]
@@ -232,20 +253,7 @@ export default function ChatScreen() {
 
   const renderHeaderLeft = () => (
     <TouchableOpacity
-      onPress={() => {
-        Alert.prompt(
-          'API URL',
-          'Enter the LM Studio API URL:',
-          (text) => {
-            if (text) {
-              setApiUrl(text.trim());
-              AsyncStorage.setItem(API_URL_STORAGE_KEY, text.trim());
-            }
-          },
-          'plain-text',
-          apiUrl
-        );
-      }}
+      onPress={() => router.push('/profile')}
       style={styles.headerButton}
     >
       <IconSymbol name="gear" color={colors.primary} size={20} />

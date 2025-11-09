@@ -39,6 +39,39 @@ export default function ProfileScreen() {
       }
 
       const cleanUrl = tempApiUrl.trim();
+      
+      // Validate URL format
+      if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+        Alert.alert('Invalid URL', 'API URL must start with http:// or https://');
+        return;
+      }
+
+      // Check for localhost on Android
+      if (Platform.OS === 'android' && (cleanUrl.includes('localhost') || cleanUrl.includes('127.0.0.1'))) {
+        Alert.alert(
+          'Warning: localhost on Android',
+          'You are using localhost or 127.0.0.1 on an Android device.\n\n' +
+          'This will NOT work because localhost refers to the Android device itself, not your computer.\n\n' +
+          'You need to use your computer\'s IP address instead (e.g., http://192.168.1.100:1234).\n\n' +
+          'Do you want to save this URL anyway?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Save Anyway',
+              style: 'destructive',
+              onPress: async () => {
+                await AsyncStorage.setItem(API_URL_STORAGE_KEY, cleanUrl);
+                setApiUrl(cleanUrl);
+                setTempApiUrl(cleanUrl);
+                setIsEditing(false);
+                console.log('API URL saved (with localhost warning):', cleanUrl);
+              },
+            },
+          ]
+        );
+        return;
+      }
+
       await AsyncStorage.setItem(API_URL_STORAGE_KEY, cleanUrl);
       setApiUrl(cleanUrl);
       setTempApiUrl(cleanUrl);
@@ -82,6 +115,32 @@ export default function ProfileScreen() {
     setIsEditing(false);
   };
 
+  const showNetworkHelp = () => {
+    let helpMessage = 'To connect to LM Studio from this device:\n\n';
+    
+    if (Platform.OS === 'android') {
+      helpMessage += '📱 ANDROID DEVICE\n\n';
+      helpMessage += '1. Find your computer\'s IP address:\n';
+      helpMessage += '   • Windows: Open CMD, type "ipconfig"\n';
+      helpMessage += '   • Mac: Open Terminal, type "ifconfig"\n';
+      helpMessage += '   • Linux: Open Terminal, type "ip addr"\n';
+      helpMessage += '   • Look for IPv4 address (e.g., 192.168.1.100)\n\n';
+      helpMessage += '2. Use that IP in your API URL:\n';
+      helpMessage += '   • Example: http://192.168.1.100:1234\n\n';
+      helpMessage += '3. Make sure:\n';
+      helpMessage += '   • Both devices are on the same WiFi\n';
+      helpMessage += '   • LM Studio server is running\n';
+      helpMessage += '   • Firewall allows port 1234\n';
+    } else {
+      helpMessage += '1. Make sure LM Studio is running\n';
+      helpMessage += '2. Start the local server in LM Studio\n';
+      helpMessage += '3. Enable CORS in LM Studio settings\n';
+      helpMessage += '4. Use the correct API URL\n';
+    }
+    
+    Alert.alert('Network Setup Help', helpMessage, [{ text: 'OK' }]);
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
@@ -100,7 +159,28 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>API Settings</Text>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>API Settings</Text>
+            <TouchableOpacity onPress={showNetworkHelp} style={styles.helpButton}>
+              <IconSymbol name="questionmark.circle" color={colors.primary} size={20} />
+            </TouchableOpacity>
+          </View>
+          
+          {Platform.OS === 'android' && (apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1')) && (
+            <View style={styles.androidWarningCard}>
+              <IconSymbol name="exclamationmark.triangle.fill" color="#FF9800" size={24} />
+              <View style={styles.androidWarningContent}>
+                <Text style={styles.androidWarningTitle}>Android Device Detected</Text>
+                <Text style={styles.androidWarningText}>
+                  localhost won&apos;t work on Android! You need to use your computer&apos;s IP address.
+                </Text>
+                <TouchableOpacity onPress={showNetworkHelp} style={styles.androidWarningButton}>
+                  <Text style={styles.androidWarningButtonText}>Show Setup Instructions</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+          
           <View style={styles.card}>
             <View style={styles.settingRow}>
               <View style={styles.settingHeader}>
@@ -114,7 +194,7 @@ export default function ProfileScreen() {
                     style={styles.input}
                     value={tempApiUrl}
                     onChangeText={setTempApiUrl}
-                    placeholder="Enter API URL"
+                    placeholder="Enter API URL (e.g., http://192.168.1.100:1234)"
                     placeholderTextColor={colors.textSecondary}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -162,7 +242,7 @@ export default function ProfileScreen() {
             <View style={styles.infoBox}>
               <IconSymbol name="info.circle" color={colors.primary} size={16} />
               <Text style={styles.infoBoxText}>
-                Enter the base URL for LM Studio&apos;s API. Example: http://localhost:1234
+                Enter the base URL for LM Studio&apos;s API. {Platform.OS === 'android' ? 'On Android, use your computer\'s IP address (e.g., http://192.168.1.100:1234)' : 'Example: http://localhost:1234'}
               </Text>
             </View>
           </View>
@@ -207,7 +287,8 @@ export default function ProfileScreen() {
               • LM Studio installed on your computer{'\n'}
               • A compatible AI model loaded{'\n'}
               • Local API server running{'\n'}
-              • Device on the same network
+              • Device on the same network{'\n'}
+              {Platform.OS === 'android' ? '• Use computer\'s IP address (not localhost)' : ''}
             </Text>
           </View>
         </View>
@@ -256,11 +337,56 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 24,
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: colors.text,
+  },
+  helpButton: {
+    padding: 4,
+  },
+  androidWarningCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 12,
+    borderWidth: 2,
+    borderColor: '#FF9800',
+  },
+  androidWarningContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  androidWarningTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#E65100',
+    marginBottom: 4,
+  },
+  androidWarningText: {
+    fontSize: 14,
+    color: '#E65100',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  androidWarningButton: {
+    backgroundColor: '#FF9800',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  androidWarningButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
   },
   card: {
     backgroundColor: colors.card,

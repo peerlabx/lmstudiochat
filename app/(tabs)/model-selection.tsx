@@ -33,6 +33,7 @@ export default function ModelSelectionScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [apiUrl, setApiUrl] = useState(DEFAULT_API_URL);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [fetchError, setFetchError] = useState<string>('');
 
   useEffect(() => {
     loadSelectedModel();
@@ -71,23 +72,41 @@ export default function ModelSelectionScreen() {
 
   const fetchModels = async () => {
     console.log('Fetching models from:', `${apiUrl}/v1/models`);
+    console.log('Platform:', Platform.OS);
+    console.log('Is using localhost:', apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1'));
+    
     setIsLoading(true);
+    setFetchError('');
+    
     try {
       const modelsEndpoint = `${apiUrl}/v1/models`;
+      
+      console.log('Making fetch request to:', modelsEndpoint);
+      console.log('Request headers:', {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      });
+      
+      // Add timeout to fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
       const response = await fetch(modelsEndpoint, {
         method: 'GET',
         headers: {
-          "Accept": "application/json"
+          "Accept": "application/json",
+          "Content-Type": "application/json",
         },
-      });
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId));
 
-      console.log('Response status:', response.status);
+      console.log('Response received. Status:', response.status);
+      console.log('Response OK:', response.ok);
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error('API Error Response:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
+        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
       }
 
       const data = await response.json();
@@ -110,15 +129,82 @@ export default function ModelSelectionScreen() {
         setDropdownOpen(true);
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching models:', error);
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      
+      let errorMessage = 'Failed to fetch models from LM Studio.\n\n';
+      
+      if (error.name === 'AbortError') {
+        errorMessage += 'Request timed out after 10 seconds.\n\n';
+        errorMessage += 'Possible causes:\n';
+        errorMessage += '• LM Studio server is not responding\n';
+        errorMessage += '• Network connectivity issues\n';
+        errorMessage += '• Firewall blocking the connection\n\n';
+      } else if (error.message.includes('Network request failed') || error.message.includes('Failed to fetch')) {
+        errorMessage += 'Network request failed. This usually means:\n\n';
+        
+        if (Platform.OS === 'android') {
+          errorMessage += '📱 ANDROID DEVICE DETECTED\n\n';
+          
+          if (apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1')) {
+            errorMessage += '⚠️ CRITICAL: You are using localhost/127.0.0.1\n\n';
+            errorMessage += 'On Android devices, localhost refers to the device itself, NOT your computer.\n\n';
+            errorMessage += 'YOU MUST:\n';
+            errorMessage += '1. Find your computer\'s IP address:\n';
+            errorMessage += '   • Windows: Open CMD, type "ipconfig"\n';
+            errorMessage += '   • Mac/Linux: Open Terminal, type "ifconfig"\n';
+            errorMessage += '   • Look for IPv4 address (e.g., 192.168.1.100)\n\n';
+            errorMessage += '2. Update API URL to use your computer\'s IP:\n';
+            errorMessage += '   • Example: http://192.168.1.100:1234\n\n';
+            errorMessage += '3. Ensure both devices are on the same WiFi network\n\n';
+          } else {
+            errorMessage += 'Troubleshooting steps:\n';
+            errorMessage += '• Verify LM Studio is running on your computer\n';
+            errorMessage += '• Check that the API server is started in LM Studio\n';
+            errorMessage += '• Ensure both devices are on the same network\n';
+            errorMessage += '• Check if your computer\'s firewall is blocking port 1234\n';
+            errorMessage += '• Try disabling VPN if you\'re using one\n\n';
+          }
+        } else {
+          errorMessage += '• The API URL is incorrect\n';
+          errorMessage += '• LM Studio is not running\n';
+          errorMessage += '• The API server is not started in LM Studio\n';
+          errorMessage += '• Your device cannot reach the server\n\n';
+        }
+      } else {
+        errorMessage += `Error: ${error.message}\n\n`;
+      }
+      
+      errorMessage += `Current API URL: ${apiUrl}\n`;
+      errorMessage += `Platform: ${Platform.OS}\n\n`;
+      errorMessage += 'General Troubleshooting:\n';
+      errorMessage += '1. Make sure LM Studio is running\n';
+      errorMessage += '2. Load a model in LM Studio\n';
+      errorMessage += '3. Start the local server in LM Studio\n';
+      errorMessage += '4. Check that CORS is enabled in LM Studio\n';
+      errorMessage += '5. Verify your device is on the same network\n';
+      
+      if (Platform.OS === 'android' && (apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1'))) {
+        errorMessage += '\n⚠️ IMPORTANT: Replace localhost with your computer\'s IP address!';
+      }
+      
+      setFetchError(errorMessage);
+      setModels([]);
       
       Alert.alert(
         'Connection Error',
-        `Failed to fetch models from LM Studio.\n\nMake sure:\n1. LM Studio is running\n2. A model is loaded\n3. The API server is started\n4. Your device is on the same network\n\nCurrent API URL: ${apiUrl}`,
-        [{ text: 'OK' }]
+        errorMessage,
+        [
+          {
+            text: 'Change URL',
+            onPress: () => router.push('/profile'),
+          },
+          { text: 'OK' }
+        ]
       );
-      setModels([]);
     } finally {
       setIsLoading(false);
     }
@@ -134,22 +220,28 @@ export default function ModelSelectionScreen() {
       console.log('Selecting model:', modelId);
       setSelectedModel(modelId);
       setDropdownOpen(false);
-      await AsyncStorage.setItem(MODEL_STORAGE_KEY, modelId);
-      console.log('Selected model saved:', modelId);
       
+      // Save to AsyncStorage
+      await AsyncStorage.setItem(MODEL_STORAGE_KEY, modelId);
+      console.log('Selected model saved to AsyncStorage:', modelId);
+      
+      // Show success message
       Alert.alert(
         'Model Selected',
         `Successfully selected: ${modelId}\n\nThis model will be used for all chat conversations.`,
         [
           {
             text: 'OK',
-            onPress: () => router.back(),
+            onPress: () => {
+              console.log('Alert dismissed, navigating back');
+              router.back();
+            },
           },
         ]
       );
     } catch (error) {
       console.error('Error saving selected model:', error);
-      Alert.alert('Error', 'Failed to save selected model');
+      Alert.alert('Error', 'Failed to save selected model. Please try again.');
     }
   };
 
@@ -159,15 +251,31 @@ export default function ModelSelectionScreen() {
         <IconSymbol name="exclamationmark.triangle" color={colors.textSecondary} size={64} />
         <Text style={styles.emptyTitle}>No Models Found</Text>
         <Text style={styles.emptyText}>
-          Make sure you have loaded a model in LM Studio and the API server is running.
+          {fetchError || 'Make sure you have loaded a model in LM Studio and the API server is running.'}
         </Text>
         <View style={styles.apiInfoBox}>
-          <Text style={styles.apiInfoLabel}>API URL:</Text>
-          <Text style={styles.apiInfoText}>{apiUrl}/v1/models</Text>
+          <Text style={styles.apiInfoLabel}>Current Configuration:</Text>
+          <Text style={styles.apiInfoText}>API URL: {apiUrl}/v1/models</Text>
+          <Text style={styles.apiInfoText}>Platform: {Platform.OS}</Text>
+          {Platform.OS === 'android' && (apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1')) && (
+            <View style={styles.warningBox}>
+              <IconSymbol name="exclamationmark.triangle.fill" color="#FF9800" size={16} />
+              <Text style={styles.warningText}>
+                localhost won&apos;t work on Android! Use your computer&apos;s IP address instead.
+              </Text>
+            </View>
+          )}
         </View>
         <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
           <IconSymbol name="arrow.clockwise" color={colors.card} size={20} />
           <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.changeUrlButton} 
+          onPress={() => router.push('/profile')}
+        >
+          <IconSymbol name="gear" color={colors.primary} size={20} />
+          <Text style={styles.changeUrlButtonText}>Change API URL</Text>
         </TouchableOpacity>
       </View>
     );
@@ -194,8 +302,18 @@ export default function ModelSelectionScreen() {
           </Text>
           <View style={styles.apiUrlContainer}>
             <IconSymbol name="network" color={colors.primary} size={16} />
-            <Text style={styles.apiUrlText}>{apiUrl}/v1/models</Text>
+            <Text style={styles.apiUrlText} numberOfLines={1} ellipsizeMode="middle">
+              {apiUrl}/v1/models
+            </Text>
           </View>
+          {Platform.OS === 'android' && (apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1')) && (
+            <View style={styles.platformWarning}>
+              <IconSymbol name="exclamationmark.triangle.fill" color="#FF9800" size={20} />
+              <Text style={styles.platformWarningText}>
+                Android detected: localhost won&apos;t work! Use your computer&apos;s IP address.
+              </Text>
+            </View>
+          )}
         </View>
 
         {isLoading ? (
@@ -217,7 +335,7 @@ export default function ModelSelectionScreen() {
             >
               <View style={styles.dropdownButtonContent}>
                 <IconSymbol name="cpu" color={colors.primary} size={24} />
-                <Text style={styles.dropdownButtonText}>
+                <Text style={styles.dropdownButtonText} numberOfLines={1}>
                   {selectedModel || 'Select a model...'}
                 </Text>
               </View>
@@ -353,6 +471,24 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     flex: 1,
   },
+  platformWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#FF9800',
+  },
+  platformWarningText: {
+    fontSize: 12,
+    color: '#E65100',
+    marginLeft: 8,
+    flex: 1,
+    fontWeight: '600',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -396,6 +532,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    marginRight: 8,
   },
   dropdownButtonText: {
     fontSize: 16,
@@ -432,6 +569,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    marginRight: 8,
   },
   dropdownItemText: {
     marginLeft: 12,
@@ -528,7 +666,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
     borderRadius: 8,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E0E0E0',
     width: '100%',
@@ -537,12 +675,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: colors.text,
-    marginBottom: 4,
+    marginBottom: 8,
   },
   apiInfoText: {
     fontSize: 12,
     color: colors.textSecondary,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    marginBottom: 4,
+  },
+  warningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#FF9800',
+  },
+  warningText: {
+    fontSize: 11,
+    color: '#E65100',
+    marginLeft: 6,
+    flex: 1,
+    fontWeight: '600',
   },
   retryButton: {
     flexDirection: 'row',
@@ -553,9 +709,26 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.2)',
     elevation: 4,
+    marginBottom: 12,
   },
   retryButtonText: {
     color: colors.card,
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  changeUrlButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  changeUrlButtonText: {
+    color: colors.primary,
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,

@@ -22,6 +22,12 @@ export default function TabLayout() {
       label: 'Chat',
     },
     {
+      name: 'network-test',
+      route: '/(tabs)/network-test',
+      icon: 'network',
+      label: 'Network',
+    },
+    {
       name: 'profile',
       route: '/(tabs)/profile',
       icon: 'person.fill',
@@ -40,6 +46,10 @@ export default function TabLayout() {
         <NativeTabs.Trigger name="chat">
           <Icon sf="message.fill" drawable="ic_chat" color={colors.text} />
           <Label>Chat</Label>
+        </NativeTabs.Trigger>
+        <NativeTabs.Trigger name="network-test">
+          <Icon sf="network" drawable="ic_network" color={colors.text} />
+          <Label>Network</Label>
         </NativeTabs.Trigger>
         <NativeTabs.Trigger name="profile">
           <Icon sf="person.fill" drawable="ic_profile" color={colors.text} />
@@ -60,6 +70,7 @@ export default function TabLayout() {
       >
         <Stack.Screen name="(home)" />
         <Stack.Screen name="chat" />
+        <Stack.Screen name="network-test" />
         <Stack.Screen name="profile" />
       </Stack>
       <FloatingTabBar tabs={tabs} />
